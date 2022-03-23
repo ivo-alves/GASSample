@@ -8,6 +8,9 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
 #include "GameFramework/SpringArmComponent.h"
+#include "MyAbilitySystemComponent.h"
+#include "MyGameplayAbility.h"
+#include "MyAttributeSet.h"
 
 //////////////////////////////////////////////////////////////////////////
 // AGASCharacter
@@ -43,8 +46,73 @@ AGASCharacter::AGASCharacter()
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName); // Attach the camera to the end of the boom and let the boom adjust to match the controller orientation
 	FollowCamera->bUsePawnControlRotation = false; // Camera does not rotate relative to arm
 
+	AbilitySystemComponent = CreateDefaultSubobject<UMyAbilitySystemComponent>("AbilitySystemComponent");
+	AbilitySystemComponent->SetIsReplicated(true);
+	AbilitySystemComponent->SetReplicationMode(EGameplayEffectReplicationMode::Minimal);
+
+	Attributes = CreateDefaultSubobject<UMyAttributeSet>("Attributes");
+
 	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character) 
 	// are set in the derived blueprint asset named MyCharacter (to avoid direct content references in C++)
+}
+
+class UAbilitySystemComponent* AGASCharacter::GetAbilitySystemComponent() const
+{
+	return AbilitySystemComponent;
+}
+
+void AGASCharacter::InitializeAttributes()
+{
+	if (AbilitySystemComponent && DefaultAttributeEffect)
+	{
+		FGameplayEffectContextHandle EffectContext = AbilitySystemComponent->MakeEffectContext();
+		EffectContext.AddSourceObject(this);
+
+		FGameplayEffectSpecHandle SpecHandle = AbilitySystemComponent->MakeOutgoingSpec(
+			DefaultAttributeEffect,
+			1,
+			EffectContext);
+
+		if (SpecHandle.IsValid())
+		{
+			FActiveGameplayEffectHandle GEHandle = 
+				AbilitySystemComponent->ApplyGameplayEffectSpecToSelf(*SpecHandle.Data.Get());
+		}
+	}
+}
+
+void AGASCharacter::GiveAbilities()
+{
+	if (HasAuthority() && AbilitySystemComponent)
+	{
+		for (TSubclassOf<UMyGameplayAbility>& StartupAbility : DefaultAbilities)
+		{
+			AbilitySystemComponent->GiveAbility(
+				FGameplayAbilitySpec(StartupAbility,
+				1,
+				static_cast<int32>(StartupAbility.GetDefaultObject()->AbilityInputID), this));
+		}
+	}
+}
+
+void AGASCharacter::PossessedBy(AController* NewController)
+{
+	Super::PossessedBy(NewController);
+
+	// Server GAS init
+	AbilitySystemComponent->InitAbilityActorInfo(this, this);
+	InitializeAttributes();
+	GiveAbilities();
+
+}
+
+void AGASCharacter::OnRep_PlayerState()
+{
+	Super::OnRep_PlayerState();
+
+	AbilitySystemComponent->InitAbilityActorInfo(this, this);
+	InitializeAttributes();
+	SetupGASInputBindings();
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -74,8 +142,25 @@ void AGASCharacter::SetupPlayerInputComponent(class UInputComponent* PlayerInput
 
 	// VR headset functionality
 	PlayerInputComponent->BindAction("ResetVR", IE_Pressed, this, &AGASCharacter::OnResetVR);
+
+	SetupGASInputBindings();
 }
 
+
+void AGASCharacter::SetupGASInputBindings()
+{
+
+	if (AbilitySystemComponent && InputComponent)
+	{
+		const FGameplayAbilityInputBinds Binds(
+			"Confirmado",
+			"Cancelado",
+			"EMyAbilityInputID",
+			static_cast<int32>(EMyAbilityInputID::Confirmado),
+			static_cast<int32>(EMyAbilityInputID::Cancelado));
+		AbilitySystemComponent->BindAbilityActivationToInputComponent(InputComponent, Binds);
+	}
+}
 
 void AGASCharacter::OnResetVR()
 {

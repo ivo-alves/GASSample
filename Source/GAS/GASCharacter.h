@@ -4,10 +4,13 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
+#include "AbilitySystemInterface.h"
+#include <GameplayEffectTypes.h>
+
 #include "GASCharacter.generated.h"
 
 UCLASS(config=Game)
-class AGASCharacter : public ACharacter
+class AGASCharacter : public ACharacter, public IAbilitySystemInterface
 {
 	GENERATED_BODY()
 
@@ -18,6 +21,13 @@ class AGASCharacter : public ACharacter
 	/** Follow camera */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Camera, meta = (AllowPrivateAccess = "true"))
 	class UCameraComponent* FollowCamera;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Camera, meta = (AllowPrivateAccess = "true"))
+	class UMyAbilitySystemComponent* AbilitySystemComponent;
+
+	UPROPERTY()
+	class UMyAttributeSet* Attributes;
+
 public:
 	AGASCharacter();
 
@@ -29,7 +39,23 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category=Camera)
 	float BaseLookUpRate;
 
+	UPROPERTY(BlueprintReadOnly, EditDefaultsOnly)
+	TSubclassOf<class UGameplayEffect> DefaultAttributeEffect;
+
+	UPROPERTY(BlueprintReadOnly, EditDefaultsOnly)
+	TArray<TSubclassOf<class UMyGameplayAbility>> DefaultAbilities;
+
+	virtual void InitializeAttributes();
+	virtual void GiveAbilities();
+
+	virtual void PossessedBy(AController* NewController) override;
+	virtual void OnRep_PlayerState() override;
+
+	virtual class UAbilitySystemComponent* GetAbilitySystemComponent() const override;
+
 protected:
+
+	void SetupGASInputBindings();
 
 	/** Resets HMD orientation in VR. */
 	void OnResetVR();
